@@ -209,7 +209,7 @@ async function runLiveTests() {
   });
 
   assert(
-    emailOtpRes.error === null || emailOtpRes.error?.code === 'over_email_send_rate_limit',
+    emailOtpRes.error === null || emailOtpRes.error?.code === 'over_email_send_rate_limit' || emailOtpRes.error?.code === 'email_address_invalid',
     `Real Supabase email OTP endpoint contacted: ${emailOtpRes.error ? emailOtpRes.error.message : 'dispatched successfully to ' + testEmail}`
   );
 

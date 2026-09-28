@@ -3,13 +3,13 @@ import './globals.css';
 import { I18nProvider } from '@/lib/i18n';
 
 export const metadata: Metadata = {
-  title: '🛡️ FRAUD LOCK — Detect. Alert. Protect. Report.',
-  description: 'Production-quality, mobile-first anti-fraud cybersecurity application. Real-time message scanning, safe link inspection, QR shield, emergency recovery, and incident reporting.',
+  title: 'ARISE Marketplace — Apartment Society Services & Verified Local Vendors',
+  description: 'The premier community marketplace for apartment residents. Discover and book verified electricians, plumbers, house cleaners, laundry, groceries, and gate-pass cleared services.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Fraud Lock',
+    title: 'Arise Marketplace',
   },
   icons: {
     icon: '/logo.png',

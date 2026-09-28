@@ -15,6 +15,7 @@ import {
   ChevronDown,
   LogIn,
   Briefcase,
+  Building,
 } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 import { SupportedLocale } from '@/types/scam';
@@ -76,38 +77,34 @@ export function Header({
           onClick={() => onSelectNav('home')}
           className="flex items-center gap-2.5 text-left group transition-all cursor-pointer"
         >
-          <div className="w-9 h-9 rounded-xl bg-black border border-amber-500/40 flex items-center justify-center overflow-hidden shadow-[0_0_15px_rgba(245,158,11,0.25)] group-hover:border-amber-400 group-hover:shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all shrink-0">
-            <img
-              src="/logo.png"
-              alt="Fraud Lock"
-              className="w-full h-full object-cover"
-            />
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-600 via-sky-600 to-indigo-700 border border-cyan-400/40 flex items-center justify-center overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.35)] group-hover:border-cyan-300 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.5)] transition-all shrink-0">
+            <span className="font-extrabold text-white text-base tracking-tight">A</span>
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-bold text-sm tracking-wider bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400 bg-clip-text text-transparent">
-                FRAUD LOCK
+              <span className="font-extrabold text-sm tracking-wider bg-gradient-to-r from-cyan-400 via-sky-300 to-indigo-300 bg-clip-text text-transparent">
+                ARISE
               </span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 font-mono">
-                PWA
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-mono">
+                MARKETPLACE
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 font-mono tracking-tight hidden sm:block">
-              {t.motto}
+            <p className="text-[10px] text-slate-400 font-medium tracking-tight hidden sm:block">
+              Apartment Society & Community Network
             </p>
           </div>
         </button>
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Emergency 1-Tap Trigger */}
+          {/* Quick Vendor Portal Switcher */}
           <button
-            onClick={onOpenEmergency}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-600/90 hover:bg-red-500 text-white font-semibold text-xs border border-red-400/50 shadow-[0_0_16px_rgba(239,68,68,0.5)] transition-all animate-pulse cursor-pointer"
-            title="Immediate Incident Assistance & Bank Freeze"
+            onClick={() => onSelectNav(currentUser?.role === 'vendor' ? 'vendor_dashboard' : 'vendor_dashboard')}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 font-medium text-xs border border-indigo-500/30 shadow-sm transition-all cursor-pointer"
+            title="Vendor Gate-Pass & Jobs Portal"
           >
-            <Siren className="w-3.5 h-3.5" />
-            <span className="font-bold text-[11px] sm:text-xs">1930 / Lost Money</span>
+            <Briefcase className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">Vendor Portal</span>
           </button>
 
           {/* Family Mode Switcher */}
@@ -212,13 +209,18 @@ export function Header({
                   <div className="px-3 py-2 space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-white truncate">
-                        {currentUser?.display_name || 'Citizen'}
+                        {currentUser?.display_name || 'Resident'}
                       </span>
-                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-950 border border-emerald-500/40 text-emerald-400">
-                        VERIFIED
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 uppercase">
+                        {currentUser?.role || 'Customer'}
                       </span>
                     </div>
-                    <p className="text-[11px] text-cyan-400 font-mono truncate">
+                    {currentUser?.apartment_block && currentUser?.apartment_unit && (
+                      <p className="text-[11px] text-emerald-400 font-mono">
+                        {currentUser.apartment_block} • Unit {currentUser.apartment_unit}
+                      </p>
+                    )}
+                    <p className="text-[10px] text-slate-400 font-mono truncate">
                       {currentUser?.email || currentUser?.phone || 'Verified Account'}
                     </p>
                   </div>
@@ -227,13 +229,13 @@ export function Header({
                 <div className="py-1 space-y-0.5">
                   <button
                     onClick={() => {
-                      onSelectNav('profile');
+                      onSelectNav('home');
                       setShowAvatarMenu(false);
                     }}
                     className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2 text-slate-300 hover:text-white hover:bg-cyan-500/10 hover:border-cyan-500/30 transition-colors cursor-pointer"
                   >
-                    <User className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Citizen Profile</span>
+                    <Building className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Marketplace Home</span>
                   </button>
 
                   {currentUser?.role === 'vendor' && (

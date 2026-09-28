@@ -1,6 +1,6 @@
 import { SupportedLocale } from './scam';
 
-export type UserRole = 'customer' | 'vendor';
+export type UserRole = 'customer' | 'vendor' | 'admin';
 
 export interface UserProfile {
   id: string;

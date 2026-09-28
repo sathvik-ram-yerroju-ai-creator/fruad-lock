@@ -26,6 +26,7 @@ import { OtpVerificationView } from '@/components/auth/OtpVerificationView';
 import { DemoScenariosModal } from '@/components/demo/DemoScenariosModal';
 import { ReportExportModal } from '@/components/reports/ReportExportModal';
 import { VendorDashboardView } from '@/components/dashboard/VendorDashboardView';
+import { AriseMarketplaceHome } from '@/components/marketplace/AriseMarketplaceHome';
 import { AnalysisResult, IncidentReport, EvidenceItem } from '@/types/scam';
 import { DemoScenario } from '@/lib/demo/demoData';
 import { inspectUrlSafely } from '@/lib/scanners/linkGuard';
@@ -55,7 +56,7 @@ type ActiveView =
   | 'profile'
   | 'security_center';
 
-export default function FraudLockApp() {
+export default function AriseMarketplaceApp() {
   const [activeView, setActiveView] = useState<ActiveView>('home');
   const [isFamilyMode, setIsFamilyMode] = useState<boolean>(false);
   const [isMobileFrame, setIsMobileFrame] = useState<boolean>(false);
@@ -278,13 +279,10 @@ export default function FraudLockApp() {
     switch (activeView) {
       case 'home':
         return (
-          <HomeDashboardView
-            onSelectScanner={handleSelectScannerFromDashboard}
-            onOpenEmergency={() => setActiveView('emergency')}
-            onOpenFamilyMode={() => setIsFamilyMode(true)}
-            onOpenDemoScenarios={() => setIsDemoModalOpen(true)}
-            onOpenAssistant={() => setActiveView('assistant')}
-            onOpenThreatMap={() => setActiveView('threat_map')}
+          <AriseMarketplaceHome
+            currentUser={currentUser}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            onNavigateToVendorDashboard={() => setActiveView('vendor_dashboard')}
           />
         );
 
