@@ -35,6 +35,9 @@ import {
   exportAllUserData,
   permanentlyDeleteAccount,
   createOtpChallenge,
+  signInWithOtp,
+  normalizeIndianPhone,
+  validateEmail,
   logSecurityEvent,
   uploadAndSetUserAvatar,
 } from '@/lib/auth/authService';
@@ -147,7 +150,7 @@ export function ProfileView({
   };
 
   // Handle Account Registration from Zero Data
-  const handleRegisterAccount = (e: React.FormEvent) => {
+  const handleRegisterAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError(null);
 
@@ -173,16 +176,44 @@ export function ProfileView({
       return;
     }
 
-    const destination = regEmail.trim() || regPhone.trim();
-    const channel = regEmail.trim() ? 'email' : 'sms';
+    const hasEmail = Boolean(regEmail.trim());
+    const channel: 'email' | 'sms' = hasEmail ? 'email' : 'sms';
+    let destination = '';
 
-    // Dispatch 6-digit OTP challenge
+    if (hasEmail) {
+      const emailCheck = validateEmail(regEmail);
+      if (!emailCheck.isValid) {
+        setRegError(emailCheck.error || 'Please enter a valid email address.');
+        return;
+      }
+      destination = emailCheck.email;
+    } else {
+      const phoneCheck = normalizeIndianPhone(regPhone);
+      if (!phoneCheck.isValid) {
+        setRegError(phoneCheck.error || 'Please enter a valid 10-digit Indian mobile number.');
+        return;
+      }
+      destination = phoneCheck.phone;
+    }
+
+    // Dispatch Supabase OTP
+    const otpResult = await signInWithOtp(destination, {
+      channel,
+      shouldCreateUser: true,
+      displayName: regDisplayName.trim(),
+    });
+
+    if (!otpResult.success) {
+      setRegError(otpResult.error || 'Failed to dispatch verification OTP via Supabase.');
+      return;
+    }
+
     const { challenge } = createOtpChallenge(destination, channel, 'signup');
 
     onRequestOtp(challenge, {
       displayName: regDisplayName.trim(),
-      email: regEmail.trim() || undefined,
-      phone: regPhone.trim() || undefined,
+      email: hasEmail ? destination : undefined,
+      phone: !hasEmail ? destination : undefined,
       password: regPassword,
       emergencyName: regEmergencyName.trim() || undefined,
       emergencyPhone: regEmergencyPhone.trim() || undefined,
@@ -234,18 +265,36 @@ export function ProfileView({
     }
   };
 
-  const handleInitiateEmailChange = () => {
-    if (!newEmail || !newEmail.includes('@')) return;
-    const { challenge } = createOtpChallenge(newEmail, 'email', 'change_email');
+  const handleInitiateEmailChange = async () => {
+    const emailCheck = validateEmail(newEmail);
+    if (!emailCheck.isValid) {
+      alert(emailCheck.error || 'Please enter a valid email address.');
+      return;
+    }
+    const res = await signInWithOtp(emailCheck.email, { channel: 'email' });
+    if (!res.success) {
+      alert(res.error || 'Failed to dispatch email verification OTP.');
+      return;
+    }
+    const { challenge } = createOtpChallenge(emailCheck.email, 'email', 'change_email');
     setIsChangingEmail(false);
-    onRequestOtp(challenge, { email: newEmail });
+    onRequestOtp(challenge, { email: emailCheck.email });
   };
 
-  const handleInitiatePhoneChange = () => {
-    if (!newPhone || newPhone.length < 8) return;
-    const { challenge } = createOtpChallenge(newPhone, 'sms', 'change_phone');
+  const handleInitiatePhoneChange = async () => {
+    const phoneCheck = normalizeIndianPhone(newPhone);
+    if (!phoneCheck.isValid) {
+      alert(phoneCheck.error || 'Please enter a valid 10-digit Indian mobile number.');
+      return;
+    }
+    const res = await signInWithOtp(phoneCheck.phone, { channel: 'sms' });
+    if (!res.success) {
+      alert(res.error || 'Failed to dispatch SMS verification OTP.');
+      return;
+    }
+    const { challenge } = createOtpChallenge(phoneCheck.phone, 'sms', 'change_phone');
     setIsChangingPhone(false);
-    onRequestOtp(challenge, { phone: newPhone });
+    onRequestOtp(challenge, { phone: phoneCheck.phone });
   };
 
   const handleExportData = async () => {

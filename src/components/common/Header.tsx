@@ -14,6 +14,7 @@ import {
   LogOut,
   ChevronDown,
   LogIn,
+  Briefcase,
 } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 import { SupportedLocale } from '@/types/scam';
@@ -234,6 +235,19 @@ export function Header({
                     <User className="w-3.5 h-3.5 text-cyan-400" />
                     <span>Citizen Profile</span>
                   </button>
+
+                  {currentUser?.role === 'vendor' && (
+                    <button
+                      onClick={() => {
+                        onSelectNav('vendor_dashboard');
+                        setShowAvatarMenu(false);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2 text-indigo-300 hover:text-white hover:bg-indigo-500/10 transition-colors cursor-pointer"
+                    >
+                      <Briefcase className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Vendor Dashboard</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => {

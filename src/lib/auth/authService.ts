@@ -1,5 +1,6 @@
 import {
   UserProfile,
+  UserRole,
   UserSecuritySettings,
   TrustedDevice,
   UserSession,
@@ -261,109 +262,504 @@ export async function signInWithPassword(
 }
 
 /**
+ * Standardize and validate Indian mobile phone numbers to international E.164 format (+91XXXXXXXXXX)
+ * Validates 10-digit Indian numbers starting with 6, 7, 8, or 9
+ */
+export function normalizeIndianPhone(rawPhone: string): {
+  isValid: boolean;
+  phone: string;
+  error?: string;
+} {
+  if (!rawPhone || !rawPhone.trim()) {
+    return { isValid: false, phone: '', error: 'Mobile number is required.' };
+  }
+
+  const trimmed = rawPhone.trim();
+  const cleaned = trimmed.replace(/[\s\-\(\)\.]/g, '');
+
+  let digits = '';
+  if (cleaned.startsWith('+91')) {
+    digits = cleaned.slice(3);
+  } else if (cleaned.startsWith('91') && cleaned.length === 12) {
+    digits = cleaned.slice(2);
+  } else if (cleaned.startsWith('0') && cleaned.length === 11) {
+    digits = cleaned.slice(1);
+  } else if (/^\d{10}$/.test(cleaned)) {
+    digits = cleaned;
+  } else if (cleaned.startsWith('+')) {
+    // Non-India international format
+    const internationalDigits = cleaned.slice(1);
+    if (/^\d{7,15}$/.test(internationalDigits)) {
+      return { isValid: true, phone: cleaned };
+    }
+    return { isValid: false, phone: '', error: 'Please enter a valid international mobile number.' };
+  } else {
+    digits = cleaned;
+  }
+
+  // Indian mobile numbers must be exactly 10 digits and start with 6, 7, 8, or 9
+  if (/^[6-9]\d{9}$/.test(digits)) {
+    return { isValid: true, phone: `+91${digits}` };
+  }
+
+  return {
+    isValid: false,
+    phone: '',
+    error: 'Please enter a valid 10-digit Indian mobile number (e.g., 98765 43210 or +91 98765 43210).',
+  };
+}
+
+/**
  * Standardize phone number to international E.164 format (+919876543210)
  */
 export function formatE164Phone(rawPhone: string, defaultCountryCode = '+91'): string {
-  const trimmed = rawPhone.trim();
-  if (!trimmed) return '';
-  const digits = trimmed.replace(/[^\d+]/g, '');
-  if (digits.startsWith('+')) {
-    return digits;
-  }
-  if (digits.startsWith('0')) {
-    return `${defaultCountryCode}${digits.slice(1)}`;
-  }
-  if (digits.length === 10) {
-    return `${defaultCountryCode}${digits}`;
-  }
-  return digits.startsWith('+') ? digits : `${defaultCountryCode}${digits}`;
+  const norm = normalizeIndianPhone(rawPhone);
+  if (norm.isValid) return norm.phone;
+  const digits = rawPhone.trim().replace(/[^\d+]/g, '');
+  if (digits.startsWith('+')) return digits;
+  return `${defaultCountryCode}${digits}`;
 }
 
 /**
- * Request passwordless OTP login via SMS or Email
+ * Validate standard RFC5322 email address format
  */
-export async function signInWithOtp(destination: string): Promise<{ success: boolean; error?: string }> {
-  const isEmail = destination.includes('@');
-  const formattedDestination = isEmail ? destination.trim().toLowerCase() : formatE164Phone(destination);
+export function validateEmail(rawEmail: string): {
+  isValid: boolean;
+  email: string;
+  error?: string;
+} {
+  if (!rawEmail || !rawEmail.trim()) {
+    return { isValid: false, email: '', error: 'Email address is required.' };
+  }
+  const clean = rawEmail.trim().toLowerCase();
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (!emailRegex.test(clean)) {
+    return { isValid: false, email: clean, error: 'Please enter a valid email address (e.g., name@example.com).' };
+  }
+  return { isValid: true, email: clean };
+}
+
+/**
+ * Mask an Indian mobile number for privacy and security display
+ * Example: "+919876543210" -> "+91 98XXX XX210"
+ * If showPartialDigits is false, returns standard: "+91 XXXXX XXXXX"
+ */
+export function maskIndianPhone(phone: string, showPartialDigits = true): string {
+  if (!phone) return '+91 XXXXX XXXXX';
+  const norm = normalizeIndianPhone(phone);
+  const target = norm.isValid ? norm.phone : phone;
+  const digitsOnly = target.replace(/[^\d]/g, '');
+  const tenDigits = digitsOnly.startsWith('91') && digitsOnly.length === 12
+    ? digitsOnly.slice(2)
+    : digitsOnly.slice(-10);
+
+  if (tenDigits.length === 10) {
+    if (showPartialDigits) {
+      return `+91 ${tenDigits.slice(0, 2)}XXX XX${tenDigits.slice(7, 10)}`;
+    }
+    return '+91 XXXXX XXXXX';
+  }
+  return target;
+}
+
+/**
+ * Mask an email address for privacy and security display
+ * Example: "name@example.com" -> "n***e@example.com"
+ */
+export function maskEmail(email: string): string {
+  if (!email || !email.includes('@')) return email;
+  const [local, domain] = email.trim().toLowerCase().split('@');
+  if (local.length <= 2) {
+    return `${local[0] || '*'}***@${domain}`;
+  }
+  return `${local[0]}***${local[local.length - 1]}@${domain}`;
+}
+
+/**
+ * Resolve client application redirect URL for Supabase Auth
+ */
+export function resolveAppRedirectUrl(): string {
+  if (typeof window !== 'undefined' && window.location.origin) {
+    return `${window.location.origin}/auth/callback`;
+  }
+  const rawBase =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.VITE_APP_URL ||
+    'https://cyber-lock-sable.vercel.app';
+  const cleanBase = rawBase.replace(/\/+$/, '');
+  return `${cleanBase}/auth/callback`;
+}
+
+export interface SignInWithOtpResult {
+  success: boolean;
+  destination?: string;
+  channel?: 'email' | 'sms';
+  error?: string;
+  code?: string;
+  canSwitchChannel?: 'email' | 'sms';
+}
+
+/**
+ * Request passwordless OTP login via SMS or Email using live Supabase Auth
+ */
+export async function signInWithOtp(
+  destination: string,
+  options?: {
+    channel?: 'email' | 'sms';
+    shouldCreateUser?: boolean;
+    displayName?: string;
+  }
+): Promise<SignInWithOtpResult> {
+  const isEmail = options?.channel ? options.channel === 'email' : destination.includes('@');
+
+  let normalizedDestination = '';
+  if (isEmail) {
+    const emailValidation = validateEmail(destination);
+    if (!emailValidation.isValid) {
+      return { success: false, error: emailValidation.error };
+    }
+    normalizedDestination = emailValidation.email;
+  } else {
+    const phoneValidation = normalizeIndianPhone(destination);
+    if (!phoneValidation.isValid) {
+      return { success: false, error: phoneValidation.error };
+    }
+    normalizedDestination = phoneValidation.phone;
+  }
 
   if (supabase) {
     try {
-      const payload: any = isEmail
-        ? { email: formattedDestination, options: { shouldCreateUser: true } }
-        : { phone: formattedDestination, options: { shouldCreateUser: true } };
+      const redirectUrl = resolveAppRedirectUrl();
 
-      const { error } = await supabase.auth.signInWithOtp(payload);
-      if (error) {
-        console.warn('Supabase signInWithOtp error:', error.message);
-        if (error.code === 'phone_provider_disabled') {
-          console.warn('[Fraud Lock] Phone SMS provider not enabled in Supabase dashboard yet. Using secure local challenge.');
-          return { success: true };
-        }
-        return { success: false, error: error.message };
+      let error: any = null;
+      if (isEmail) {
+        const res = await supabase.auth.signInWithOtp({
+          email: normalizedDestination,
+          options: {
+            shouldCreateUser: options?.shouldCreateUser ?? true,
+            emailRedirectTo: redirectUrl,
+            data: options?.displayName ? { display_name: options.displayName } : undefined,
+          },
+        });
+        error = res.error;
+      } else {
+        const res = await supabase.auth.signInWithOtp({
+          phone: normalizedDestination,
+          options: {
+            shouldCreateUser: options?.shouldCreateUser ?? true,
+            data: options?.displayName ? { display_name: options.displayName } : undefined,
+          },
+        });
+        error = res.error;
       }
-      return { success: true };
+
+      if (error) {
+        // Log non-sensitive error metadata only
+        console.error('[Supabase Auth Error]', {
+          channel: isEmail ? 'email' : 'sms',
+          code: error.code,
+          status: error.status,
+          message: error.message,
+        });
+
+        // Specific developer & user actionable error messaging
+        if (
+          error.code === 'phone_provider_disabled' ||
+          (error.message && error.message.toLowerCase().includes('phone provider')) ||
+          (error.message && error.message.toLowerCase().includes('unsupported phone provider'))
+        ) {
+          return {
+            success: false,
+            code: 'phone_provider_disabled',
+            error: 'SMS verification is not configured yet. Please choose email verification or contact support.',
+            canSwitchChannel: 'email',
+          };
+        }
+
+        if (
+          error.code === 'over_email_send_rate_limit' ||
+          error.code === 'over_sms_send_rate_limit' ||
+          (error.message && error.message.toLowerCase().includes('rate limit'))
+        ) {
+          return {
+            success: false,
+            code: 'rate_limit',
+            error: 'Security rate limit exceeded. Please wait a few minutes before requesting another OTP.',
+            canSwitchChannel: isEmail ? 'sms' : 'email',
+          };
+        }
+
+        if (
+          error.code === 'email_address_invalid' ||
+          (error.message && error.message.toLowerCase().includes('email address'))
+        ) {
+          return {
+            success: false,
+            code: 'email_invalid',
+            error: 'The email address entered is invalid or cannot receive messages.',
+            canSwitchChannel: 'sms',
+          };
+        }
+
+        if (error.status === 429) {
+          return {
+            success: false,
+            code: 'rate_limit',
+            error: 'Too many OTP requests. Please wait a few moments before trying again.',
+            canSwitchChannel: isEmail ? 'sms' : 'email',
+          };
+        }
+
+        return {
+          success: false,
+          code: error.code,
+          error: error.message || (isEmail
+            ? 'Failed to dispatch email verification code. Please check your address or try SMS verification.'
+            : 'SMS verification failed. Please choose email verification or contact support.'),
+          canSwitchChannel: isEmail ? 'sms' : 'email',
+        };
+      }
+
+      return {
+        success: true,
+        destination: normalizedDestination,
+        channel: isEmail ? 'email' : 'sms',
+      };
     } catch (err: any) {
-      console.warn('Supabase signInWithOtp exception:', err);
-      return { success: true };
+      console.error('[Supabase Auth Exception]', {
+        message: err?.message,
+      });
+      return {
+        success: false,
+        error: err?.message || 'Unable to connect to Supabase Auth service. Please verify your connection.',
+      };
     }
   }
 
-  return { success: true };
+  // Isolated local development mock mode (ONLY active if explicitly enabled)
+  const isMockMode = process.env.NEXT_PUBLIC_ENABLE_MOCK_AUTH === 'true';
+  if (isMockMode) {
+    console.warn('[Fraud Lock] Using local mock auth because NEXT_PUBLIC_ENABLE_MOCK_AUTH is true.');
+    return {
+      success: true,
+      destination: normalizedDestination,
+      channel: isEmail ? 'email' : 'sms',
+    };
+  }
+
+  return {
+    success: false,
+    error: 'Supabase authentication is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.',
+  };
 }
 
 /**
- * Verify OTP with Supabase Auth or local verification
+ * Verify OTP with Supabase Auth
  */
 export async function verifySupabaseOtp(
   destination: string,
   token: string,
-  type: 'signup' | 'recovery' | 'magiclink' | 'sms' | 'email' = 'email'
+  channel: 'email' | 'sms' = 'email',
+  purpose: OtpChallenge['purpose'] = 'login',
+  tempCredentials?: {
+    displayName?: string;
+    email?: string;
+    phone?: string;
+    apartmentBlock?: string;
+    apartmentUnit?: string;
+    role?: UserRole;
+    emergencyName?: string;
+    emergencyPhone?: string;
+    country?: string;
+    preferredLang?: string;
+  }
 ): Promise<AuthResult> {
-  const isEmail = destination.includes('@');
-  const formattedDestination = isEmail ? destination.trim().toLowerCase() : formatE164Phone(destination);
+  const isEmail = channel === 'email' || destination.includes('@');
+  const cleanToken = token.trim();
+
+  if (!cleanToken || cleanToken.length !== 6 || !/^\d{6}$/.test(cleanToken)) {
+    return { success: false, error: 'Please enter a valid 6-digit verification code.' };
+  }
+
+  let formattedDestination = '';
+  if (isEmail) {
+    const emailRes = validateEmail(destination);
+    formattedDestination = emailRes.isValid ? emailRes.email : destination.trim().toLowerCase();
+  } else {
+    const phoneRes = normalizeIndianPhone(destination);
+    formattedDestination = phoneRes.isValid ? phoneRes.phone : destination.trim();
+  }
 
   if (supabase) {
     try {
-      const verifyPayload: any = {
-        token,
-        type: isEmail ? (type === 'signup' ? 'signup' : 'email') : 'sms',
-      };
+      let data: any = null;
+      let error: any = null;
+
       if (isEmail) {
-        verifyPayload.email = formattedDestination;
+        const res = await supabase.auth.verifyOtp({
+          email: formattedDestination,
+          token: cleanToken,
+          type: 'email',
+        });
+        data = res.data;
+        error = res.error;
       } else {
-        verifyPayload.phone = formattedDestination;
+        const res = await supabase.auth.verifyOtp({
+          phone: formattedDestination,
+          token: cleanToken,
+          type: 'sms',
+        });
+        data = res.data;
+        error = res.error;
       }
 
-      const { data, error } = await supabase.auth.verifyOtp(verifyPayload);
-
       if (error) {
-        console.warn('Supabase verifyOtp note:', error.message);
-        // Fall back to local check if token was generated by local OTP challenge
-        const localCheck = verifyOtpCode(token);
-        if (localCheck.success) {
-          const profile = await getCurrentUserProfile();
-          return { success: true, user: profile };
+        console.error('[Supabase Auth Verify Error]', {
+          code: error.code,
+          status: error.status,
+          message: error.message,
+        });
+
+        if (
+          error.code === 'otp_expired' ||
+          (error.message && error.message.toLowerCase().includes('expired'))
+        ) {
+          return {
+            success: false,
+            error: 'The verification code has expired. Please request a new OTP.',
+          };
         }
-        return { success: false, error: error.message };
+
+        if (
+          (error.message && error.message.toLowerCase().includes('invalid')) ||
+          (error.message && error.message.toLowerCase().includes('token'))
+        ) {
+          return {
+            success: false,
+            error: 'Incorrect 6-digit OTP code. Please check your messages and try again.',
+          };
+        }
+
+        return {
+          success: false,
+          error: error.message || 'Verification failed. Please try again.',
+        };
       }
 
       if (data?.user) {
-        const profile = await getCurrentUserProfile();
-        return { success: true, user: profile };
+        const u = data.user;
+        const displayName =
+          tempCredentials?.displayName ||
+          u.user_metadata?.display_name ||
+          (isEmail ? formattedDestination.split('@')[0] : 'Citizen User');
+
+        const resolvedEmail = u.email || tempCredentials?.email || (isEmail ? formattedDestination : '');
+        const resolvedPhone = u.phone || tempCredentials?.phone || (!isEmail ? formattedDestination : '');
+        const resolvedRole: UserRole = tempCredentials?.role || u.user_metadata?.role || 'customer';
+        const resolvedBlock = tempCredentials?.apartmentBlock || u.user_metadata?.apartment_block || '';
+        const resolvedUnit = tempCredentials?.apartmentUnit || u.user_metadata?.apartment_unit || '';
+
+        // Save profile metadata in Supabase Auth user record
+        try {
+          await supabase.auth.updateUser({
+            data: {
+              display_name: displayName,
+              apartment_block: resolvedBlock,
+              apartment_unit: resolvedUnit,
+              role: resolvedRole,
+              phone: resolvedPhone,
+              emergency_contact_name: tempCredentials?.emergencyName,
+              emergency_contact_phone: tempCredentials?.emergencyPhone,
+              country: tempCredentials?.country || 'India',
+              preferred_language: tempCredentials?.preferredLang || 'en',
+            },
+          });
+        } catch (updateErr) {
+          console.warn('Metadata sync note:', updateErr);
+        }
+
+        // Try syncing to public.profiles table
+        try {
+          await supabase.from('profiles').upsert({
+            id: u.id,
+            display_name: displayName,
+            email: resolvedEmail,
+            phone: resolvedPhone,
+            apartment_block: resolvedBlock,
+            apartment_unit: resolvedUnit,
+            role: resolvedRole,
+            country: tempCredentials?.country || 'India',
+            preferred_language: (tempCredentials?.preferredLang as any) || 'en',
+            emergency_contact_name: tempCredentials?.emergencyName,
+            emergency_contact_phone: tempCredentials?.emergencyPhone,
+            created_at: u.created_at || new Date().toISOString(),
+            last_login_at: new Date().toISOString(),
+          });
+        } catch {
+          // Table may not yet be migrated
+        }
+
+        const userProfile: UserProfile = {
+          id: u.id,
+          display_name: displayName,
+          email: resolvedEmail,
+          email_verified: Boolean(u.email_confirmed_at || isEmail),
+          phone: resolvedPhone,
+          phone_verified: Boolean(u.phone_confirmed_at || !isEmail),
+          apartment_block: resolvedBlock,
+          apartment_unit: resolvedUnit,
+          role: resolvedRole,
+          avatar_url: u.user_metadata?.avatar_url || '',
+          country: tempCredentials?.country || 'India',
+          preferred_language: (tempCredentials?.preferredLang as any) || 'en',
+          emergency_contact_name: tempCredentials?.emergencyName,
+          emergency_contact_phone: tempCredentials?.emergencyPhone,
+          created_at: u.created_at || new Date().toISOString(),
+          last_login_at: new Date().toISOString(),
+        };
+
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(AUTH_STORAGE_KEYS.CURRENT_USER, JSON.stringify(userProfile));
+        }
+
+        await logSecurityEvent({
+          event_type: 'login',
+          details: `OTP authentication verified successfully for ${formattedDestination}`,
+        });
+
+        return { success: true, user: userProfile };
       }
     } catch (err: any) {
-      console.warn('Supabase OTP verification exception:', err);
+      console.error('[Supabase Auth Verify Exception]', { message: err?.message });
+      return { success: false, error: err?.message || 'Verification exception occurred.' };
     }
   }
 
-  // Local fallback
-  const localCheck = verifyOtpCode(token);
-  if (!localCheck.success) {
-    return { success: false, error: localCheck.error };
+  // Isolated local development mock mode (ONLY active if explicitly enabled)
+  const isMockMode = process.env.NEXT_PUBLIC_ENABLE_MOCK_AUTH === 'true';
+  if (isMockMode) {
+    if (cleanToken === '123456') {
+      const demoUser: UserProfile = {
+        id: `usr_${Date.now()}`,
+        display_name: tempCredentials?.displayName || (isEmail ? formattedDestination.split('@')[0] : 'Citizen User'),
+        email: isEmail ? formattedDestination : '',
+        email_verified: isEmail,
+        phone: !isEmail ? formattedDestination : '',
+        phone_verified: !isEmail,
+        country: 'India',
+        preferred_language: 'en',
+        created_at: new Date().toISOString(),
+        last_login_at: new Date().toISOString(),
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(AUTH_STORAGE_KEYS.CURRENT_USER, JSON.stringify(demoUser));
+      }
+      return { success: true, user: demoUser };
+    }
+    return { success: false, error: 'Mock OTP invalid. (In local mock mode, use code 123456)' };
   }
 
-  const profile = await getCurrentUserProfile();
-  return { success: true, user: profile };
+  return { success: false, error: 'Supabase authentication service unavailable.' };
 }
 
 /**
@@ -630,10 +1026,13 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
         const profile: UserProfile = {
           id: u.id,
           display_name: dbProfile?.display_name || meta.display_name || u.email?.split('@')[0] || 'Citizen User',
-          email: u.email || '',
+          email: u.email || dbProfile?.email || '',
           email_verified: Boolean(u.email_confirmed_at),
           phone: dbProfile?.phone || u.phone || meta.phone || '',
           phone_verified: Boolean(u.phone_confirmed_at || dbProfile?.phone_verified),
+          apartment_block: dbProfile?.apartment_block || meta.apartment_block || '',
+          apartment_unit: dbProfile?.apartment_unit || meta.apartment_unit || '',
+          role: (dbProfile?.role || meta.role || 'customer') as UserRole,
           avatar_url: dbProfile?.avatar_url || meta.avatar_url || '',
           country: dbProfile?.country || meta.country || 'India',
           preferred_language: dbProfile?.preferred_language || meta.preferred_language || 'en',
@@ -828,30 +1227,28 @@ export async function updateSecuritySettings(
 }
 
 // =============================================================================
-// OTP CHALLENGE CREATION & LOCAL VERIFICATION
+// OTP CHALLENGE METADATA MANAGEMENT (Zero secret storage on client)
 // =============================================================================
 
 export interface GeneratedOtp {
-  code: string;
   challenge: OtpChallenge;
 }
 
-export function createOtpChallenge(
+/**
+ * Creates safe metadata representing an active OTP challenge.
+ * Notice: The secret OTP is generated, managed, and verified exclusively
+ * by Supabase Auth server-side. No OTP code is ever stored on the client.
+ */
+export function createOtpChallengeMetadata(
   destination: string,
   channel: 'email' | 'sms',
   purpose: OtpChallenge['purpose']
-): GeneratedOtp {
-  const randomArray = new Uint32Array(1);
-  if (typeof window !== 'undefined' && window.crypto) {
-    window.crypto.getRandomValues(randomArray);
-  } else {
-    randomArray[0] = Math.floor(Math.random() * 900000);
-  }
-  const code = (100000 + (randomArray[0] % 900000)).toString();
-
+): OtpChallenge {
   const now = Date.now();
+  const maskedDestination = channel === 'sms' ? maskIndianPhone(destination) : maskEmail(destination);
   const challenge: OtpChallenge = {
     destination,
+    maskedDestination,
     channel,
     expiresAt: now + 10 * 60 * 1000, // 10 minutes expiry
     resendAvailableAt: now + 60 * 1000, // 60 seconds cooldown
@@ -860,20 +1257,26 @@ export function createOtpChallenge(
   };
 
   if (typeof window !== 'undefined') {
+    // Store ONLY non-sensitive metadata for UI timer tracking (NO OTP CODE!)
     sessionStorage.setItem(
       AUTH_STORAGE_KEYS.ACTIVE_OTP,
-      JSON.stringify({ code, challenge })
-    );
-    console.info(
-      `%c[Fraud Lock Security Gateway] OTP dispatched for ${destination}: ${code}`,
-      'background: #090F1E; color: #00f0ff; font-weight: bold; font-size: 12px; padding: 4px 8px; border-radius: 4px; border: 1px solid #00f0ff;'
+      JSON.stringify({ challenge })
     );
   }
 
-  return { code, challenge };
+  return challenge;
 }
 
-export function getActiveOtpChallenge(): { code: string; challenge: OtpChallenge } | null {
+export function createOtpChallenge(
+  destination: string,
+  channel: 'email' | 'sms',
+  purpose: OtpChallenge['purpose']
+): GeneratedOtp {
+  const challenge = createOtpChallengeMetadata(destination, channel, purpose);
+  return { challenge };
+}
+
+export function getActiveOtpChallenge(): { challenge: OtpChallenge } | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = sessionStorage.getItem(AUTH_STORAGE_KEYS.ACTIVE_OTP);
@@ -884,43 +1287,10 @@ export function getActiveOtpChallenge(): { code: string; challenge: OtpChallenge
   }
 }
 
-export function verifyOtpCode(inputCode: string): {
-  success: boolean;
-  error?: string;
-  attemptsLeft?: number;
-} {
-  const active = getActiveOtpChallenge();
-  if (!active) {
-    return { success: false, error: 'No active OTP verification session found. Please request a new code.' };
-  }
-
-  const { code, challenge } = active;
-
-  if (Date.now() > challenge.expiresAt) {
+export function clearActiveOtpChallenge(): void {
+  if (typeof window !== 'undefined') {
     sessionStorage.removeItem(AUTH_STORAGE_KEYS.ACTIVE_OTP);
-    return { success: false, error: 'Verification code has expired. Please request a new OTP.' };
   }
-
-  if (challenge.attemptsLeft <= 0) {
-    sessionStorage.removeItem(AUTH_STORAGE_KEYS.ACTIVE_OTP);
-    return { success: false, error: 'Maximum verification attempts exceeded. Please request a new OTP.' };
-  }
-
-  if (inputCode.trim() !== code) {
-    challenge.attemptsLeft -= 1;
-    sessionStorage.setItem(
-      AUTH_STORAGE_KEYS.ACTIVE_OTP,
-      JSON.stringify({ code, challenge })
-    );
-    return {
-      success: false,
-      error: `Invalid verification code. ${challenge.attemptsLeft} attempts remaining.`,
-      attemptsLeft: challenge.attemptsLeft,
-    };
-  }
-
-  sessionStorage.removeItem(AUTH_STORAGE_KEYS.ACTIVE_OTP);
-  return { success: true };
 }
 
 // =============================================================================

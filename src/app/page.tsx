@@ -25,16 +25,19 @@ import { AuthModal } from '@/components/auth/AuthModal';
 import { OtpVerificationView } from '@/components/auth/OtpVerificationView';
 import { DemoScenariosModal } from '@/components/demo/DemoScenariosModal';
 import { ReportExportModal } from '@/components/reports/ReportExportModal';
+import { VendorDashboardView } from '@/components/dashboard/VendorDashboardView';
 import { AnalysisResult, IncidentReport, EvidenceItem } from '@/types/scam';
 import { DemoScenario } from '@/lib/demo/demoData';
 import { inspectUrlSafely } from '@/lib/scanners/linkGuard';
 import { analyzeScamMessage } from '@/lib/scanners/messageScanner';
 import { getCurrentUserProfile, DEFAULT_DEMO_USER, logSecurityEvent, signOut } from '@/lib/auth/authService';
 import { supabase } from '@/lib/supabase';
-import { UserProfile, OtpChallenge } from '@/types/auth';
+import { UserProfile, OtpChallenge, UserRole } from '@/types/auth';
+import { ShieldAlert } from 'lucide-react';
 
 type ActiveView =
   | 'home'
+  | 'vendor_dashboard'
   | 'message_scanner'
   | 'link_guard'
   | 'screenshot_ocr'
@@ -66,6 +69,9 @@ export default function FraudLockApp() {
     phone?: string;
     password?: string;
     displayName?: string;
+    apartmentBlock?: string;
+    apartmentUnit?: string;
+    role?: UserRole;
   } | undefined>(undefined);
 
   // Active scan analysis state
@@ -192,19 +198,34 @@ export default function FraudLockApp() {
   // Auth & OTP Handlers
   const handleOtpRequired = (
     challenge: OtpChallenge,
-    tempCredentials?: { email?: string; phone?: string; password?: string; displayName?: string }
+    tempCredentials?: {
+      email?: string;
+      phone?: string;
+      password?: string;
+      displayName?: string;
+      apartmentBlock?: string;
+      apartmentUnit?: string;
+      role?: UserRole;
+    }
   ) => {
     setActiveOtpChallenge(challenge);
     setPendingOtpCredentials(tempCredentials);
   };
 
   const handleOtpSuccess = async (destination: string, purpose: OtpChallenge['purpose']) => {
+    const savedCredentials = pendingOtpCredentials;
     setActiveOtpChallenge(null);
     setPendingOtpCredentials(undefined);
     await loadUser();
 
-    if (purpose === 'signup') {
-      setActiveView('profile');
+    // Check user profile role for routing
+    const profile = await getCurrentUserProfile();
+    const effectiveRole = savedCredentials?.role || profile?.role;
+
+    if (effectiveRole === 'vendor') {
+      setActiveView('vendor_dashboard');
+    } else {
+      setActiveView('home');
     }
   };
 
@@ -230,6 +251,30 @@ export default function FraudLockApp() {
       );
     }
 
+    // Do not allow users to access protected dashboards until their OTP is successfully verified
+    const isProtected = activeView === 'vendor_dashboard' || activeView === 'vault' || activeView === 'security_center';
+    if (isProtected && !currentUser) {
+      return (
+        <div className="max-w-md mx-auto p-6 rounded-3xl border border-cyan-500/30 bg-[#090F1E] text-center space-y-4 shadow-2xl my-8">
+          <div className="w-14 h-14 rounded-2xl bg-cyan-950/60 border border-cyan-500/40 flex items-center justify-center mx-auto text-cyan-400">
+            <ShieldAlert className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-base sm:text-lg font-bold text-white">Protected Area Access</h2>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Identity verification required. Please complete OTP authentication to access your protected dashboard.
+            </p>
+          </div>
+          <button
+            onClick={() => setIsAuthModalOpen(true)}
+            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold text-xs transition-all cursor-pointer shadow-[0_0_20px_rgba(0,240,255,0.25)]"
+          >
+            Sign In / Register with OTP
+          </button>
+        </div>
+      );
+    }
+
     switch (activeView) {
       case 'home':
         return (
@@ -240,6 +285,16 @@ export default function FraudLockApp() {
             onOpenDemoScenarios={() => setIsDemoModalOpen(true)}
             onOpenAssistant={() => setActiveView('assistant')}
             onOpenThreatMap={() => setActiveView('threat_map')}
+          />
+        );
+
+      case 'vendor_dashboard':
+        return (
+          <VendorDashboardView
+            currentUser={currentUser}
+            onSwitchToCustomerView={() => setActiveView('home')}
+            onSignOut={handleSignOut}
+            onOpenEmergency={() => setActiveView('emergency')}
           />
         );
 
@@ -440,6 +495,14 @@ export default function FraudLockApp() {
           onCancel={() => {
             setActiveOtpChallenge(null);
             setPendingOtpCredentials(undefined);
+          }}
+          onChangeMethod={() => {
+            setActiveOtpChallenge(null);
+            setIsAuthModalOpen(true);
+          }}
+          onChangeDestination={() => {
+            setActiveOtpChallenge(null);
+            setIsAuthModalOpen(true);
           }}
           tempCredentials={pendingOtpCredentials}
         />

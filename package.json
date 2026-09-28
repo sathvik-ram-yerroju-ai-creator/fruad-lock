@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:auth": "node tests/authorization.test.mjs"
+    "test": "npm run test:auth && npm run test:otp",
+    "test:auth": "node tests/authorization.test.mjs",
+    "test:otp": "node tests/otp-auth-flow.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

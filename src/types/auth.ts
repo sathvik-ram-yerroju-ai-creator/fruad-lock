@@ -1,5 +1,7 @@
 import { SupportedLocale } from './scam';
 
+export type UserRole = 'customer' | 'vendor';
+
 export interface UserProfile {
   id: string;
   display_name: string;
@@ -7,6 +9,9 @@ export interface UserProfile {
   email_verified: boolean;
   phone: string;
   phone_verified: boolean;
+  apartment_block?: string;
+  apartment_unit?: string;
+  role?: UserRole;
   avatar_url?: string;
   country: string;
   preferred_language: SupportedLocale;
@@ -96,10 +101,11 @@ export interface PasswordStrengthInfo {
 }
 
 export interface OtpChallenge {
-  destination: string; // phone or email
+  destination: string; // phone (+91XXXXXXXXXX) or email
+  maskedDestination?: string; // e.g. "+91 98XXX XX210" or "n***@example.com"
   channel: 'email' | 'sms';
   expiresAt: number; // timestamp
   resendAvailableAt: number;
-  attemptsLeft: number;
+  attemptsLeft?: number;
   purpose: 'signup' | 'login' | 'reset_password' | 'change_email' | 'change_phone';
 }

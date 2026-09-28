@@ -207,10 +207,179 @@ npm run dev
 # Run Automated Authorization & Security Tests
 npm run test:auth
 
+# Run Automated Supabase OTP Authentication Audit
+npm run test:otp
+
 # Production Build Validation
 npm run build
 npm run start
 ```
+
+---
+
+## 🔑 Supabase OTP Authentication Setup Guide (Email & Mobile)
+
+Fraud Lock / Arise implements passwordless Two-Factor OTP authentication powered directly by **Supabase Auth** (`signInWithOtp` and `verifyOtp`). To ensure reliable OTP delivery in local development and production, follow this configuration guide.
+
+### 1. Configure the Supabase Site URL
+1. Navigate to your **Supabase Dashboard** -> **Authentication** -> **URL Configuration**.
+2. Set the **Site URL**:
+   - **Production (Active)**: `https://cyber-lock-sable.vercel.app`
+   - **Local Development**: `http://localhost:3000`
+3. Click **Save**.
+
+### 2. Configure Redirect URLs (Local & Production)
+Under **Authentication** -> **URL Configuration** -> **Redirect URLs**, add the following allowlisted callback endpoints:
+- `https://cyber-lock-sable.vercel.app/**`
+- `https://cyber-lock-sable.vercel.app/auth/callback`
+- `http://localhost:3000/**`
+- `http://localhost:3000/auth/callback`
+
+> **Note:** The redirect URL ensures that if a user clicks an email confirmation link or magic link instead of entering the 6-digit passcode, they are securely redirected and authenticated into your app.
+
+### 3. Configuring Supabase Email Auth & Custom SMTP
+
+#### Default Email Service Limitations (Development Tier)
+- Supabase provides a built-in default email service for prototyping.
+- **Strict Rate Limit:** The default service is strictly rate-limited to **3 to 4 emails per hour**.
+- If multiple OTPs are requested in quick succession during development or testing, Supabase returns the error:
+  `over_email_send_rate_limit: email rate limit exceeded`
+- The default service does **NOT** guarantee deliverability to all consumer inboxes (e.g. Gmail, Yahoo, Outlook) and emails may land in the Spam/Junk folder.
+
+#### Setting up Custom SMTP for Production
+For production deployment, you **must** configure a custom SMTP provider (e.g., **Resend**, **SendGrid**, **Amazon SES**, **Postmark**, **Mailgun**, or **Brevo**):
+
+1. Go to **Supabase Dashboard** -> **Project Settings** -> **Authentication**.
+2. Scroll down to **SMTP Settings** and toggle **Enable Custom SMTP** to **ON**.
+3. Fill in your SMTP provider details:
+   - **Sender Email**: `security@yourdomain.com` (or `notifications@yourdomain.com`)
+   - **Sender Name**: `Arise Security Gateway`
+   - **Host**: e.g., `smtp.resend.com` / `smtp.sendgrid.net`
+   - **Port**: `587` (or `465` for SSL)
+   - **Username**: Provided by your SMTP provider (e.g., `resend` or `apikey`)
+   - **Password**: Your SMTP API key / secret password
+4. Click **Save**.
+5. Custom SMTP eliminates the 3-email/hour limit and guarantees high deliverability straight to the recipient's primary inbox.
+
+#### Troubleshooting Email Delivery with Supabase Auth Logs
+If an email OTP does not arrive:
+1. Open your **Supabase Dashboard** -> **Logs** -> **Auth Logs**.
+2. Look for entries with:
+   - `level: error` or `status: 429` (Rate limit exceeded)
+   - `status: 400` (`email_address_invalid`)
+   - `msg: "Failed to send email"` (SMTP connection error or bad sender address)
+3. Check the user's **Spam / Junk** folder in their email client.
+
+---
+
+---
+
+## 📋 Arise Registration & OTP Flow Configuration Checklist
+
+Arise enforces a strict, zero-trust registration and two-factor OTP verification flow with full live Supabase backend integration:
+
+```
+[1. Registration Form]
+  - Full Name
+  - Email Address
+  - Indian Mobile Number (+91 E.164)
+  - Apartment / Block
+  - Apartment / Unit Number
+  - Account Type: Customer or Vendor
+       │
+       ▼ (Clicks "Continue / Send OTP" - Does NOT send OTP yet)
+[2. Method Selection Screen]
+  - Option A: Verify via SMS (“Send a 6-digit code to +91 XXXXX XXXXX”)
+  - Option B: Verify via Email (“Send a 6-digit code to the email address you entered”)
+       │
+       ▼ (User chooses one option and clicks "Send OTP")
+[3. Live Supabase Auth Dispatch]
+  - If SMS: supabase.auth.signInWithOtp({ phone: '+91XXXXXXXXXX' })
+  - If Email: supabase.auth.signInWithOtp({ email: 'name@example.com' })
+       │
+       ▼ (Truthful Error Handling if gateway is unconfigured)
+[4. OTP Verification Screen]
+  - 6-Digit input with auto-focus & paste
+  - Resend countdown timer & Resend button
+  - "Change verification method" button
+       │
+       ▼ (supabase.auth.verifyOtp({ token, type: 'sms' | 'email' }))
+[5. Profile Persistence & Role-Based Routing]
+  - Auth account created only through Supabase Auth
+  - Profile saved with full name, email, normalized phone, block, unit, role
+  - Customer ➔ Customer Dashboard (Home)
+  - Vendor ➔ Vendor Onboarding & Clearance Dashboard (vendor_dashboard)
+  - Protected views blocked until OTP verified
+```
+
+---
+
+### 🛠️ Supabase Configuration Checklist
+
+Follow this checklist in your [Supabase Dashboard](https://supabase.com/dashboard) to ensure 100% production delivery for both SMS and Email OTP:
+
+#### 1. Enable Email & Phone Auth
+1. Go to **Authentication** ➔ **Providers**.
+2. **Email Provider**:
+   - Set to **Enabled**.
+   - Toggle **Confirm email** according to your policy.
+   - Set **OTP Expiry** to `600` seconds (10 minutes).
+3. **Phone Provider**:
+   - Set to **Enabled**.
+   - Toggle **Enable Phone Confirmations**.
+   - Set **SMS OTP length** to `6` digits.
+
+#### 2. Configure a Real SMS Provider (Twilio / MessageBird / Vonage)
+Under **Authentication** ➔ **Providers** ➔ **Phone**:
+1. Select your SMS Gateway provider (e.g., **Twilio** or **MessageBird**).
+2. Enter your Gateway credentials:
+   - **Twilio Account SID**: Found in your Twilio Console.
+   - **Twilio Auth Token**: Found in your Twilio Console.
+   - **Twilio Message Service SID** or **Twilio Phone Number**.
+3. **Important for Indian +91 Numbers**:
+   - Ensure your SMS provider account has sufficient balance.
+   - Verify that your provider has international SMS enabled or registered for Indian DLT (Distributed Ledger Technology) requirements for transactional OTP delivery.
+4. Click **Save**.
+
+#### 3. Configure Custom SMTP for Production Email OTP
+Supabase's built-in default email service has a strict rate limit (~3 emails/hour for testing). For reliable production delivery:
+1. Go to **Authentication** ➔ **SMTP Settings** (or **Project Settings** ➔ **Auth** ➔ **SMTP**).
+2. Toggle **Enable Custom SMTP** to **ON**.
+3. Configure your transactional email provider (e.g., **Resend**, **SendGrid**, **Postmark**, or **Amazon SES**):
+   - **Sender Email**: e.g., `security@yourdomain.com` or `auth@yourdomain.com`
+   - **Sender Name**: `Arise Security`
+   - **Host**: e.g., `smtp.resend.com` or `smtp.sendgrid.net`
+   - **Port**: `587` (TLS) or `465` (SSL)
+   - **Username**: Provided by your SMTP service (e.g., `resend` or `apikey`)
+   - **Password**: Your SMTP API Key
+4. Click **Save**.
+
+#### 4. Configure Site URL & Redirect URLs
+Under **Authentication** ➔ **URL Configuration**:
+1. **Site URL**:
+   - **Production (Live)**: `https://cyber-lock-sable.vercel.app`
+   - Local development: `http://localhost:3000`
+2. **Redirect URLs**:
+   Add the callback routes handled by Arise:
+   - `https://cyber-lock-sable.vercel.app/auth/callback`
+   - `https://cyber-lock-sable.vercel.app/**`
+   - `http://localhost:3000/auth/callback`
+   - `http://localhost:3000/**`
+3. Click **Save**.
+
+---
+
+### 🛡️ Truthful Error Handling Matrix
+
+Fraud Lock maintains absolute honesty with the user:
+- **SMS Provider Not Configured**: If a project does not have an active SMS gateway (`phone_provider_disabled`), Fraud Lock shows:
+  > *"SMS verification is not configured yet. Please choose email verification or contact support."*  
+  and provides a 1-click button to switch immediately to email OTP.
+- **Email Rate Limit Exceeded**: If the default email provider limits requests, Fraud Lock displays:
+  > *"Security rate limit exceeded. Please wait a few minutes before requesting another OTP."*  
+  and enables switching to SMS verification.
+- **Never Fake Deliveries**: The application will **never** display “OTP sent” unless Supabase Auth confirms that the dispatch API succeeded with HTTP 200.
+- **Zero Token Leakage**: OTP codes, bearer tokens, and sensitive credentials are never written to client console logs or exposed in application storage.
 
 ---
 
@@ -241,7 +410,8 @@ Vercel is the creator and maintainer of Next.js, providing native support for Ap
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: Your Supabase publishable key
    - `GEMINI_API_KEY`: Your Google Gemini API key (optional for server-side AI)
 4. **Deploy**:
-   - Click **Deploy**. Vercel will automatically build the Next.js bundle and provide an HTTPS production URL (e.g., `https://fraud-lock.vercel.app`).
+   - Click **Deploy**. Vercel will automatically build the Next.js bundle and provide an HTTPS production URL:
+     **`https://cyber-lock-sable.vercel.app`**
    - Every push to `main` branch will automatically trigger a production deployment.
 
 #### Option 2: Netlify
