@@ -152,12 +152,18 @@ npm run test:auth
 
 ---
 
-## 🚀 Setup & Installation
+## 🚀 GitHub Setup & Repository Instructions
 
-### 1. Clone & Install Dependencies
+This project is maintained in the following GitHub repository:
+**`https://github.com/sathvik-ram-yerroju-ai-creator/fruad-lock.git`**
+
+### 1. Clone & Local Setup
 ```bash
-git clone https://github.com/your-org/fraud-lock.git
-cd fraud-lock
+# Clone the repository
+git clone https://github.com/sathvik-ram-yerroju-ai-creator/fruad-lock.git
+cd fruad-lock
+
+# Install dependencies
 npm install
 ```
 
@@ -166,21 +172,26 @@ Copy `.env.example` to `.env.local`:
 ```bash
 cp .env.example .env.local
 ```
-Fill in your Supabase project keys and optional Gemini/Twilio credentials:
+Fill in your Supabase project keys and optional Gemini credentials (never commit `.env.local` to git):
 ```env
+# Supabase Configuration
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
+
+# Optional Server-Side Keys (for Edge Functions & Next.js API Routes)
 GEMINI_API_KEY=your_gemini_api_key
 ```
 
-### 3. Apply Supabase Database Migrations
-Run the SQL migration scripts in your Supabase SQL Editor in numerical order:
-1. `supabase/migrations/20260928000001_fraud_lock_schema.sql` (Core scanner & evidence schema)
-2. `supabase/migrations/20260928000002_user_security_schema.sql` (Profile, security, devices, sessions, encrypted notes & RLS)
-3. `supabase/seed.sql` (Seed regional threat clusters and baseline safety content)
+### 3. Apply Supabase Database Migrations & RLS
+Fraud Lock provides both unified and modular SQL migration scripts:
+- **Option A (One-Click Setup)**: Execute `supabase/complete_fraud_lock_setup.sql` in your Supabase SQL Editor. This initializes all 9 tables, indexes, triggers, storage buckets (`evidence-vault`, `profile-avatars`), and strict Row Level Security (RLS) policies.
+- **Option B (Modular Migrations)**: Run sequentially:
+  1. `supabase/migrations/20260928000001_fraud_lock_schema.sql` (Scanners, threat intelligence, and evidence vault)
+  2. `supabase/migrations/20260928000002_user_security_schema.sql` (Profiles, OTP/2FA security settings, devices, audit events, encrypted notes)
+  3. `supabase/seed.sql` (Baseline cyber threat categories and regional fraud vectors)
 
-### 4. Deploy Edge Functions
+### 4. Deploy Edge Functions (Optional)
 ```bash
 supabase functions deploy analyze-scam
 supabase functions deploy link-guard
@@ -188,18 +199,66 @@ supabase functions deploy safety-assistant
 supabase functions deploy account-security
 ```
 
-### 5. Run the Application
+### 5. Run Locally
 ```bash
-# Start Development Server
+# Start Next.js Development Server
 npm run dev
 
-# Run Automated Authorization Tests
+# Run Automated Authorization & Security Tests
 npm run test:auth
 
-# Production Build
+# Production Build Validation
 npm run build
 npm run start
 ```
+
+---
+
+## 🌐 Production Deployment Guide
+
+### ⚠️ Why GitHub Pages Is NOT Supported
+> **Important Architectural Limitation:**  
+> **GitHub Pages only hosts static files (HTML, CSS, client-side JS)**.  
+> **Fraud Lock is a full-stack Next.js application** utilizing server-side dynamic API routes (`/api/scan/message`, `/api/scan/link`, `/api/scan/ocr`, `/api/assistant/chat`), secure server-side API key handling (Gemini API, threat intelligence endpoints), and dynamic serverless compute.  
+>
+> Attempting to deploy this project to GitHub Pages via `next export` / static export will break server-side AI scanners, OCR processing, and secure backend proxying. **Keep GitHub strictly for source control and automated CI/CD triggers**, and deploy the application to a compatible modern cloud platform.
+
+### 🌟 Recommended Deployment Platforms
+
+#### Option 1: Vercel (Recommended — Zero-Config)
+Vercel is the creator and maintainer of Next.js, providing native support for App Router, serverless API routes, and environment variable management.
+
+1. **Push your code to GitHub**:
+   Ensure all changes are committed and pushed to `https://github.com/sathvik-ram-yerroju-ai-creator/fruad-lock.git`.
+2. **Import into Vercel**:
+   - Go to [vercel.com](https://vercel.com/) and sign in with GitHub.
+   - Click **"Add New..."** -> **"Project"**.
+   - Select the `sathvik-ram-yerroju-ai-creator/fruad-lock` repository and click **Import**.
+3. **Configure Environment Variables**:
+   In the **Environment Variables** section of the Vercel import screen, add:
+   - `NEXT_PUBLIC_SUPABASE_URL`: Your Supabase URL (`https://<project-id>.supabase.co`)
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Your Supabase public anon key
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: Your Supabase publishable key
+   - `GEMINI_API_KEY`: Your Google Gemini API key (optional for server-side AI)
+4. **Deploy**:
+   - Click **Deploy**. Vercel will automatically build the Next.js bundle and provide an HTTPS production URL (e.g., `https://fraud-lock.vercel.app`).
+   - Every push to `main` branch will automatically trigger a production deployment.
+
+#### Option 2: Netlify
+1. Connect your GitHub repository at [netlify.com](https://www.netlify.com/).
+2. Netlify will auto-detect Next.js via `@netlify/plugin-nextjs`.
+3. In **Site Configuration** -> **Environment variables**, configure the Supabase keys.
+4. Deploy the site.
+
+#### Option 3: Docker / Self-Hosted / Railway / Render
+Build and run the production container:
+```bash
+npm run build
+PORT=3000 npm run start
+```
+Configure environment variables directly in your hosting dashboard or container environment.
+
+---
 
 ---
 
